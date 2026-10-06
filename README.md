@@ -1,5 +1,14 @@
 # Thai category prediction API
 
+## Deploy to Vercel
+
+1. Import this GitHub repository as a new Vercel project and leave the root directory empty.
+2. Add `API_KEY` as an environment variable in the Vercel project settings. Do not commit the key.
+3. Deploy and verify `https://<deployment-url>/health` returns `{"status":"ok"}`.
+4. Call `https://<deployment-url>/predict` from n8n using `POST`, JSON field `text`, and the `X-API-Key` header.
+
+The Python function is configured for the Singapore region and bundles only the model artifacts. Vercel Hobby functions have a 2 GB memory limit; function usage is subject to Vercel's current plan limits.
+
 ## Deploy to Render
 
 1. Push this repository to GitHub, then create a Render Web Service from it.
