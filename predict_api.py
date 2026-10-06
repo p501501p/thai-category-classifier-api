@@ -15,7 +15,11 @@ ARTIFACT_DIR = BASE_DIR / "artifacts"
 API_KEY = os.environ.get("API_KEY")
 
 vectorizer = joblib.load(ARTIFACT_DIR / "tfidf_vectorizer.joblib")
-svd = joblib.load(ARTIFACT_DIR / "svd.joblib")
+svd_components = np.load(
+    ARTIFACT_DIR / "svd_components.npy",
+    mmap_mode="r",
+    allow_pickle=False
+)
 with np.load(ARTIFACT_DIR / "ann_weights.npz", allow_pickle=False) as weights_file:
     ann_weights = {key: weights_file[key] for key in weights_file.files}
 with (ARTIFACT_DIR / "metadata.json").open(encoding="utf-8") as metadata_file:
@@ -47,8 +51,8 @@ def predict(
     if not text:
         raise HTTPException(status_code=422, detail="text must not be blank")
 
-    features = vectorizer.transform([text])
-    reduced_features = svd.transform(features).astype("float32")
+    features = vectorizer.transform([text]).astype("float32")
+    reduced_features = features @ svd_components.T
     hidden = np.maximum(
         reduced_features @ ann_weights["kernel_0"] + ann_weights["bias_0"],
         0
