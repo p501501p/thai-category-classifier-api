@@ -7,7 +7,6 @@ import joblib
 import numpy as np
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
-from tensorflow.keras.models import load_model  # type: ignore[reportMissingModuleSource]
 
 from text_utils import thai_tokenize
 
@@ -17,7 +16,8 @@ API_KEY = os.environ.get("API_KEY")
 
 vectorizer = joblib.load(ARTIFACT_DIR / "tfidf_vectorizer.joblib")
 svd = joblib.load(ARTIFACT_DIR / "svd.joblib")
-model = load_model(ARTIFACT_DIR / "ann_model.keras")
+with np.load(ARTIFACT_DIR / "ann_weights.npz", allow_pickle=False) as weights_file:
+    ann_weights = {key: weights_file[key] for key in weights_file.files}
 with (ARTIFACT_DIR / "metadata.json").open(encoding="utf-8") as metadata_file:
     metadata = json.load(metadata_file)
 
@@ -49,7 +49,19 @@ def predict(
 
     features = vectorizer.transform([text])
     reduced_features = svd.transform(features).astype("float32")
-    probabilities = model.predict(reduced_features, verbose=0)[0]
+    hidden = np.maximum(
+        reduced_features @ ann_weights["kernel_0"] + ann_weights["bias_0"],
+        0
+    )
+    hidden = np.maximum(
+        hidden @ ann_weights["kernel_1"] + ann_weights["bias_1"],
+        0
+    )
+    logits = hidden @ ann_weights["kernel_2"] + ann_weights["bias_2"]
+    logits -= np.max(logits, axis=1, keepdims=True)
+    probabilities = np.exp(logits)
+    probabilities /= np.sum(probabilities, axis=1, keepdims=True)
+    probabilities = probabilities[0]
     class_index = int(np.argmax(probabilities))
     category_id = int(metadata["index_to_category_id"][class_index])
 
