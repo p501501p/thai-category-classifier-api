@@ -1,31 +1,160 @@
-# Thai category prediction API
+# ระบบจำแนกหมวดหมู่ข้อความภาษาไทยด้วย ANN
 
-## Deploy to Vercel
+## บทคัดย่อ
 
-1. Import this GitHub repository as a new Vercel project and leave the root directory empty.
-2. Add `API_KEY` as an environment variable in the Vercel project settings. Do not commit the key.
-3. Deploy and verify `https://<deployment-url>/health` returns `{"status":"ok"}`.
-4. Call `https://<deployment-url>/predict` from n8n using `POST`, JSON field `text`, and the `X-API-Key` header.
+โครงงานนี้พัฒนาระบบสำหรับจำแนกข้อความภาษาไทยให้อยู่ในหนึ่งใน 6 หมวดหมู่ โดยแปลงข้อความเป็นคุณลักษณะด้วย TF-IDF ลดมิติข้อมูลด้วย Truncated SVD แล้วส่งเข้าโครงข่ายประสาทเทียมแบบหลายชั้น (Artificial Neural Network: ANN) ผลลัพธ์ประกอบด้วยหมวดหมู่ที่คาดการณ์และค่าความเชื่อมั่น ระบบให้บริการผ่าน REST API เพื่อให้ n8n หรือโปรแกรมอื่นส่งข้อความมาขอผลทำนายได้
 
-The Python function is configured for the Singapore region and bundles only the model artifacts. Vercel Hobby functions have a 2 GB memory limit; function usage is subject to Vercel's current plan limits.
+## วัตถุประสงค์
 
-## Deploy to Render
+- พัฒนาต้นแบบการจำแนกข้อความภาษาไทยตามเนื้อหา
+- ทดลองใช้คุณลักษณะทั้งระดับคำและระดับตัวอักษรร่วมกัน
+- ให้บริการโมเดลผ่าน API เพื่อเชื่อมต่อกับระบบอัตโนมัติ เช่น n8n
 
-1. Push this repository to GitHub, then create a Render Web Service from it.
-2. Select `Python 3` as the runtime and `Singapore` as the region. The current NumPy inference build runs on the Free instance (512 MB RAM), but free services spin down after inactivity and the first request can be delayed by 50 seconds or more. Upgrade to at least `2 GB` RAM if the service runs out of memory.
-3. Set the build command to `pip install -r requirements.txt`.
-4. Set the start command to `uvicorn predict_api:app --host 0.0.0.0 --port $PORT`.
-5. Add `PYTHON_VERSION` with value `3.12.10` and `API_KEY` with a long random secret in the service's environment settings. Do not commit the key.
-6. Set the health check path to `/health`, deploy, and verify `https://<service-url>/health` returns `{"status":"ok"}`.
+## ข้อมูลและหมวดหมู่
 
-## Call from n8n
+ชุดข้อมูลที่ใช้พัฒนาโมเดลอยู่ในไฟล์ `ANN_Train_Data_6Categories_800rows.csv` มีข้อมูล 800 แถว และมีคอลัมน์ `Text` (ข้อความ), `Category_ID` (รหัสหมวดหมู่), `Category` (ชื่อหมวดหมู่) และ `PostId` (รหัสโพสต์) ก่อนฝึกโมเดล โค้ดจะตัดแถวที่ไม่มีข้อความหรือรหัสหมวดหมู่ ตัดช่องว่างหัวท้าย แปลงรหัสหมวดหมู่เป็นจำนวนเต็ม และนำข้อความซ้ำออก
 
-Create an HTTP Request node with:
+หมายเหตุ: repository นี้จัดเตรียมส่วน API สำหรับเรียกใช้โมเดล โดยไฟล์ชุดข้อมูลและสคริปต์ฝึกโมเดลเป็นไฟล์ต้นทางของขั้นตอนพัฒนา ไม่ได้รวมอยู่ในชุด deploy นี้
+
+| รหัส | หมวดหมู่ |
+|---:|---|
+| 0 | การรับสมัครและประชาสัมพันธ์รับเข้า |
+| 1 | การเรียนการสอนและวิชาการ |
+| 2 | วิจัย นวัตกรรม และเทคโนโลยี |
+| 3 | กิจกรรมนักศึกษา กีฬา และศิลปวัฒนธรรม |
+| 4 | ข่าวสาร รางวัล และความร่วมมือ |
+| 5 | ชุมชน สังคม และข้อมูลทั่วไป |
+
+## วิธีการพัฒนาโมเดล
+
+1. **แบ่งข้อมูล** — แบ่งข้อมูลเป็นชุดทดสอบ 20% และชุดข้อมูลที่เหลือ 80% จากนั้นแบ่งชุดฝึกและชุดตรวจสอบจากส่วน 80% ในอัตรา 85:15 ใช้ stratified split เพื่อรักษาสัดส่วนของแต่ละหมวดหมู่ และกำหนด random state เป็น 42
+2. **แปลงข้อความเป็นคุณลักษณะ** — รวม TF-IDF สองชุด ได้แก่ TF-IDF ระดับคำแบบ unigram/bigram โดยใช้ PyThaiNLP แบ่งคำ และ TF-IDF ระดับตัวอักษร n-gram ขนาด 2–5 ตัว
+3. **ลดมิติ** — ใช้ Truncated SVD ลดเวกเตอร์คุณลักษณะให้เหลือ 100 มิติ โดย fit ตัวแปลงจากชุดฝึกเท่านั้น แล้วนำตัวแปลงเดียวกันไปใช้กับชุดตรวจสอบและชุดทดสอบ
+4. **ฝึก ANN** — โครงข่ายประกอบด้วยชั้น Dense ขนาด 64 และ 32 หน่วย ใช้ ReLU และ Dropout 0.4/0.2 ตามลำดับ ชั้นผลลัพธ์มี 6 หน่วยและใช้ Softmax ฝึกด้วย Adam, learning rate เริ่มต้น 0.0005, batch size 16 และไม่เกิน 150 epochs
+5. **ควบคุมการฝึก** — ใช้ class weights เพื่อชดเชยจำนวนตัวอย่างแต่ละหมวดที่ไม่เท่ากัน ใช้ L2 regularization, Early Stopping จาก `val_loss` และลด learning rate เมื่อผลบนชุดตรวจสอบไม่ดีขึ้น
+6. **ประเมินผล** — โค้ดประเมิน accuracy บนชุดทดสอบที่กันไว้ และพิมพ์ค่าออกทาง console เมื่อฝึกเสร็จ ค่า accuracy ไม่ได้จัดเก็บไว้ในไฟล์ artifact จึงไม่ระบุตัวเลขในเอกสารนี้
+
+## การทำงานของระบบ
+
+```text
+ข้อความจากผู้ใช้หรือ n8n
+        ↓
+REST API ตรวจสอบข้อมูลและ API key
+        ↓
+TF-IDF (ระดับคำ + ระดับตัวอักษร)
+        ↓
+Truncated SVD (100 มิติ)
+        ↓
+ANN และ Softmax
+        ↓
+รหัสหมวดหมู่ + ชื่อหมวดหมู่ + confidence
+```
+
+ระหว่างการให้บริการ ระบบโหลด TF-IDF, SVD, น้ำหนัก ANN และข้อมูลชื่อหมวดหมู่จากไฟล์ใน `artifacts/` การคำนวณ ANN ใน API ใช้ NumPy กับน้ำหนักที่บันทึกไว้ เพื่อให้บริการทำนายโดยไม่ต้องฝึกโมเดลใหม่ทุกครั้ง
+
+## เทคโนโลยีที่ใช้
+
+- Python 3.12
+- FastAPI และ Pydantic สำหรับ REST API และตรวจสอบ request
+- PyThaiNLP สำหรับตัดคำภาษาไทย
+- scikit-learn สำหรับ TF-IDF และ Truncated SVD
+- TensorFlow/Keras สำหรับสร้างและฝึก ANN
+- NumPy และ joblib สำหรับโหลด artifact และคำนวณผลทำนาย
+- Vercel Functions สำหรับเผยแพร่ API
+- n8n สำหรับเชื่อม API เข้ากับ workflow อัตโนมัติ
+
+## API ที่ให้บริการ
+
+URL สำหรับ Production: <https://thai-category-classifier-api.vercel.app>
+
+### ตรวจสอบสถานะ
+
+```http
+GET /health
+```
+
+ตัวอย่างผลลัพธ์:
+
+```json
+{"status": "ok"}
+```
+
+### ทำนายหมวดหมู่
+
+```http
+POST /predict
+Content-Type: application/json
+X-API-Key: <API_KEY>
+```
+
+ตัวอย่าง request:
+
+```json
+{
+  "text": "ประกาศรับสมัครนักศึกษาใหม่ ประจำปีการศึกษา"
+}
+```
+
+ตัวอย่างรูปแบบ response (ค่าความเชื่อมั่นเป็นตัวอย่าง):
+
+```json
+{
+  "category_id": 0,
+  "category": "การรับสมัครและประชาสัมพันธ์รับเข้า",
+  "confidence": 0.95
+}
+```
+
+ค่า `confidence` เป็นค่าความน่าจะเป็นของหมวดหมู่ที่โมเดลเลือก ไม่ใช่การรับประกันว่าผลทำนายถูกต้อง API กำหนดความยาวข้อความตั้งแต่ 1 ถึง 30,000 ตัวอักษร และต้องส่ง API key ที่ถูกต้องใน header `X-API-Key`
+
+### การตอบสนองเมื่อเกิดข้อผิดพลาด
+
+- `401 Unauthorized` — ไม่มี API key หรือ API key ไม่ถูกต้อง
+- `422 Unprocessable Entity` — request ไม่ตรงรูปแบบหรือข้อความว่าง
+- `503 Service Unavailable` — ยังไม่ได้กำหนด `API_KEY` ใน environment
+- `500 Internal Server Error` — เกิดข้อผิดพลาดระหว่างประมวลผล
+
+## การเชื่อมต่อกับ n8n
+
+สร้าง **HTTP Request** node และกำหนดค่า:
 
 - Method: `POST`
-- URL: `https://<service-url>/predict`
-- Header: `X-API-Key`, stored as an n8n credential
-- Body content type: JSON
-- Body field: `text` with the expression `{{$json.Text}}`
+- URL: `https://thai-category-classifier-api.vercel.app/predict`
+- Body Content Type: `JSON`
+- Body field: `text` เช่น `{{$json.Text}}`
+- Header: `X-API-Key` โดยเก็บค่าเป็น credential ใน n8n
 
-The response contains `category_id`, `category`, and `confidence`.
+ห้ามใส่ API key ลงใน workflow ที่แชร์สาธารณะหรือ commit ลง Git
+
+## การเผยแพร่ระบบ
+
+ระบบ API เผยแพร่บน Vercel ใน region Singapore และแนบไฟล์โมเดลจาก `artifacts/` ไปกับ Python Function ตัวแปร `API_KEY` ต้องตั้งไว้ใน Vercel Project Settings สำหรับ Production แยกจาก source code การตั้งค่า RAM ของ Function ขึ้นอยู่กับแพ็กเกจ Vercel; แพ็กเกจ Hobby ใช้ค่าเริ่มต้นของ Vercel และปรับเองไม่ได้
+
+## ผลตรวจสอบระบบเบื้องต้น
+
+ทดสอบ API บน Production แล้ว โดย `/health` ตอบกลับ `200 OK`, `/predict` เมื่อส่ง API key ที่ถูกต้องตอบกลับ `200 OK` พร้อมผลทำนาย และ `/predict` เมื่อไม่ส่ง API key ตอบกลับ `401 Unauthorized` การทดสอบนี้ยืนยันการทำงานเบื้องต้นของ API ไม่ใช่ผลประเมินความแม่นยำของโมเดล
+
+## โครงสร้างไฟล์สำคัญ
+
+```text
+.
+├── app.py                 # FastAPI entry point
+├── predict_api.py         # โหลด artifact และประมวลผลการทำนาย
+├── text_utils.py          # ฟังก์ชันตัดคำภาษาไทย
+├── requirements.txt       # Python dependencies
+├── vercel.json            # ตั้งค่า region และแนบ model artifacts
+└── artifacts/
+    ├── ann_weights.npz
+    ├── ann_model.keras
+    ├── metadata.json
+    ├── svd_components.npy
+    └── tfidf_vectorizer.joblib
+```
+
+## ข้อจำกัดและแนวทางพัฒนาต่อ
+
+- โมเดลเรียนรู้จากชุดข้อมูลที่ใช้ฝึกเท่านั้น คุณภาพและความครอบคลุมของข้อความในชุดข้อมูลจึงมีผลต่อผลทำนาย
+- ค่า confidence เป็นผลจาก Softmax และไม่ควรตีความว่าเป็นค่าความแม่นยำที่ผ่านการปรับเทียบแล้ว
+- ควรบันทึกผลการประเมิน เช่น accuracy, precision, recall และ F1-score แยกรายหมวดหมู่ พร้อม confusion matrix เพื่อรายงานผลอย่างครบถ้วน
+- ควรทดสอบกับข้อมูลใหม่ที่ไม่ใช้ในการฝึก และปรับปรุงชุดข้อมูลเมื่อพบข้อความที่โมเดลจำแนกผิด
+- ควรติดตามเวลาในการตอบสนองและหน่วยความจำเมื่อมีผู้ใช้งานจริง

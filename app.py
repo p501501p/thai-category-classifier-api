@@ -1,5 +1,6 @@
 from typing import Any
 import logging
+from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException
 from pydantic import BaseModel, Field
@@ -30,7 +31,11 @@ def predict(
 		raise
 	except Exception as error:
 		logger.exception("Prediction request failed")
+		error_detail = type(error).__name__
+		if isinstance(error, OSError):
+			filename = Path(error.filename).name if error.filename else "unknown"
+			error_detail = f"{error_detail}: {error.strerror} ({filename})"
 		raise HTTPException(
 			status_code=500,
-			detail=f"Prediction failed ({type(error).__name__})"
+			detail=f"Prediction failed ({error_detail})"
 		) from error

@@ -1,3 +1,8 @@
+import os
+
+if os.environ.get("VERCEL") == "1":
+    os.environ.setdefault("PYTHAINLP_DATA", "/tmp/pythainlp-data")
+
 from pythainlp.tokenize import word_tokenize
 
 
