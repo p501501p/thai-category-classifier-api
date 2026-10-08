@@ -130,7 +130,52 @@ X-API-Key: <API_KEY>
 
 ## การเผยแพร่ระบบ
 
-ระบบ API เผยแพร่บน Vercel ใน region Singapore และแนบไฟล์โมเดลจาก `artifacts/` ไปกับ Python Function ตัวแปร `API_KEY` ต้องตั้งไว้ใน Vercel Project Settings สำหรับ Production แยกจาก source code การตั้งค่า RAM ของ Function ขึ้นอยู่กับแพ็กเกจ Vercel; แพ็กเกจ Hobby ใช้ค่าเริ่มต้นของ Vercel และปรับเองไม่ได้
+ระบบนี้ deploy เป็น Python Function บน Vercel โดยใช้ `app.py` เป็น entry point และใช้ไฟล์โมเดลใน `artifacts/` ที่แนบไปกับ Function ผ่าน `vercel.json` ไม่ต้องรัน `NW_Model.py` หรือฝึกโมเดลใหม่ตอน deploy
+
+### ทดลอง Deploy ด้วย ZIP ที่ดาวน์โหลดจาก GitHub
+
+ขั้นตอนนี้ใช้กรณีดาวน์โหลด source code เป็น ZIP มาไว้ในเครื่อง แล้ว deploy โปรเจกต์ด้วย Vercel CLI โดยไม่ต้องเชื่อม Vercel กับ GitHub:
+
+1. ในหน้า GitHub ของ repository เลือก **Code → Download ZIP** แล้วแตก ZIP ลงในเครื่อง
+2. เปิดโฟลเดอร์ที่แตกไฟล์ ตรวจดูตำแหน่ง `app.py` และ `vercel.json` หากอยู่ในโฟลเดอร์ `Post` ให้เข้าไปใน `Post` ก่อน deploy; ถ้าไฟล์อยู่ที่โฟลเดอร์หลักที่แตก ZIP มา ก็ใช้โฟลเดอร์หลักนั้น
+3. ตรวจให้มี `app.py`, `predict_api.py`, `text_utils.py`, `requirements.txt`, `vercel.json`, `.python-version` และ `artifacts/` ซึ่งอย่างน้อยต้องมี `tfidf_vectorizer.joblib`, `svd_components.npy`, `ann_weights.npz` และ `metadata.json`
+4. ติดตั้ง Node.js หากเครื่องยังไม่มี เพราะ Vercel CLI ต้องใช้ npm จากนั้นเปิด PowerShell ในโฟลเดอร์โปรเจกต์ (โฟลเดอร์เดียวกับ `app.py` และ `vercel.json`) แล้วรัน:
+
+```powershell
+npm install --global vercel
+vercel login
+vercel
+```
+
+5. ทำตามคำถามของ CLI เพื่อสร้างหรือเชื่อม Vercel project และ deploy ครั้งแรกเป็น Preview
+6. เปิดโปรเจกต์นั้นใน Vercel Dashboard ไปที่ **Settings → Environment Variables** แล้วเพิ่ม `API_KEY` พร้อม secret ของคุณ เลือก environment ที่จะใช้ (อย่างน้อย **Production**; เพิ่ม **Preview** ด้วยถ้าจะทดสอบ Preview)
+7. กลับไปที่ PowerShell ในโฟลเดอร์เดิม แล้ว deploy Production:
+
+```powershell
+vercel --prod
+```
+
+หากแก้ไขหรือเพิ่ม Environment Variable หลัง deploy ต้อง deploy ใหม่อีกครั้งเพื่อให้ค่าใหม่มีผล ตัวแปรและไฟล์ `.env` ในเครื่องจะไม่ถูกส่งไปแทนการตั้งค่า Environment Variables บน Vercel
+
+### ตรวจสอบหลัง Deploy
+
+แทน `<DEPLOYMENT_URL>` ด้วย URL ที่ Vercel แสดง โดยไม่ต้องใส่ `/` ปิดท้าย:
+
+1. เปิด `https://<DEPLOYMENT_URL>/health` ควรได้ `{"status":"ok"}`
+2. ทดลอง `POST https://<DEPLOYMENT_URL>/predict` โดยส่ง JSON ที่มี `text` และ header `X-API-Key` ซึ่งต้องตรงกับค่า `API_KEY` ที่ตั้งใน Vercel ตัวอย่างทดสอบด้วย PowerShell:
+
+```powershell
+$url = "https://<DEPLOYMENT_URL>"
+$headers = @{ "X-API-Key" = "<API_KEY>" }
+$body = @{ text = "ประกาศรับสมัครนักศึกษาใหม่ ประจำปีการศึกษา" } | ConvertTo-Json
+Invoke-RestMethod -Method Post -Uri "$url/predict" -Headers $headers -ContentType "application/json" -Body $body
+```
+
+อย่าแชร์หรือ commit ค่า `<API_KEY>` จริง หาก `/health` ใช้งานได้แต่ `/predict` ตอบ `503` ให้ตรวจว่าได้ตั้ง `API_KEY` ใน Environment Variables ของ environment ที่ deploy แล้วและ deploy ใหม่หลังตั้งค่า หากได้ `500` ให้ตรวจ deployment logs และยืนยันว่าไฟล์ใน `artifacts/` อยู่ในโฟลเดอร์ที่ deploy
+
+หลัง deploy ให้เปลี่ยน URL ใน HTTP Request node ของ n8n เป็น `https://<DEPLOYMENT_URL>/predict` และเก็บ API key เป็น credential แยกจาก workflow
+
+การตั้งค่า region ของ Function อยู่ใน `vercel.json` (Singapore: `sin1`) ส่วน RAM ที่กำหนดได้ขึ้นอยู่กับแพ็กเกจ Vercel; แพ็กเกจ Hobby ใช้ค่าเริ่มต้นของ Vercel และปรับเองไม่ได้
 
 ## ผลตรวจสอบระบบเบื้องต้น
 
